@@ -1,0 +1,267 @@
+Step 1: This part of the code is the basis for all fitted models.
+
+# This function checks if a directory specified by path exists and, if not, creates it.
+def testing_creating_directory(path):
+    if os.path.exists(path)==False:
+       os.mkdir(path)
+
+import os
+from google.colab import drive
+
+# Makes Google Drive available in the /content/drive directory, allowing access to Google Drive files from the Colab environment.
+drive.mount('/content/drive')
+
+path = '/content/drive/MyDrive/pytorch/'
+testing_creating_directory(path)
+
+# Changes the current working directory to the directory specified by path. This means that any subsequent file read/write operations
+# will be performed within this directory.
+os.chdir(path)
+
+# Install the detectron
+!python -m pip install 'git+https://github.com/facebookresearch/detectron2.git'
+
+# install other necessary library
+import os
+import cv2
+
+from datetime import datetime
+from google.colab.patches import cv2_imshow
+
+# data set preparation and visualization
+from detectron2.data.datasets import register_coco_instances
+from detectron2.data import DatasetCatalog, MetadataCatalog
+
+# visualization
+from detectron2.utils.visualizer import Visualizer
+from detectron2.utils.visualizer import ColorMode
+
+# configuration
+from detectron2 import model_zoo
+from detectron2.config import get_cfg
+
+# evaluation
+from detectron2.engine import DefaultPredictor
+
+# training
+from detectron2.engine import DefaultTrainer
+
+# read the roboflow databases
+
+!pip install roboflow
+
+from roboflow import Roboflow
+rf = Roboflow(api_key="") # or rf = Roboflow(api_key="sDHrdDWd5USqSBR0E7on")
+project = rf.workspace("medusas").project("alitas-tcc_h")
+dataset = project.version(11).download("coco")
+
+
+Step 2: Model 1 Dataset Treatment
+
+# The treatment of the data set is similar to all models, but with the inclusion of each filter for Model 3.
+
+# handles the dataset name
+DATA_SET_NAME = dataset.name.replace(" ", "-")
+ANNOTATIONS_FILE_NAME = "_annotations.coco.json"
+
+# training set
+TRAIN_DATA_SET_NAME = f"{DATA_SET_NAME}-train"
+TRAIN_DATA_SET_IMAGES_DIR_PATH = os.path.join(dataset.location, "train")
+TRAIN_DATA_SET_ANN_FILE_PATH = os.path.join(dataset.location, "train",
+ANNOTATIONS_FILE_NAME)
+
+register_coco_instances(
+    name=TRAIN_DATA_SET_NAME,
+    metadata={},
+    json_file=TRAIN_DATA_SET_ANN_FILE_PATH,
+    image_root=TRAIN_DATA_SET_IMAGES_DIR_PATH
+)
+
+# test set
+TEST_DATA_SET_NAME = f"{DATA_SET_NAME}-test"
+TEST_DATA_SET_IMAGES_DIR_PATH = os.path.join(dataset.location, "test")
+TEST_DATA_SET_ANN_FILE_PATH = os.path.join(dataset.location, "test", 
+ANNOTATIONS_FILE_NAME)
+
+register_coco_instances(
+    name=TEST_DATA_SET_NAME,
+    metadata={},
+    json_file=TEST_DATA_SET_ANN_FILE_PATH,
+    image_root=TEST_DATA_SET_IMAGES_DIR_PATH
+)
+
+# validation set
+VALID_DATA_SET_NAME = f"{DATA_SET_NAME}-valid"
+VALID_DATA_SET_IMAGES_DIR_PATH = os.path.join(dataset.location, "valid")
+VALID_DATA_SET_ANN_FILE_PATH = os.path.join(dataset.location, "valid", 
+ANNOTATIONS_FILE_NAME)
+
+register_coco_instances(
+    name=VALID_DATA_SET_NAME,
+    metadata={},
+    json_file=VALID_DATA_SET_ANN_FILE_PATH,
+    image_root=VALID_DATA_SET_IMAGES_DIR_PATH
+)
+
+import cv2
+from detectron2.data import DatasetCatalog, MetadataCatalog
+from detectron2.utils.visualizer import Visualizer, ColorMode
+from google.colab.patches import cv2_imshow
+
+metadata = MetadataCatalog.get(TRAIN_DATA_SET_NAME)
+dataset_train = DatasetCatalog.get(TRAIN_DATA_SET_NAME)
+
+dataset_entry = dataset_train[0]
+image = cv2.imread(dataset_entry["file_name"])
+
+visualizer = Visualizer(
+    image[:, :, ::-1],
+    metadata=metadata,
+    scale=0.8,
+    instance_mode=ColorMode.IMAGE_BW
+)
+
+out = visualizer.draw_dataset_dict(dataset_entry)
+cv2_imshow(out.get_image()[:, :, ::-1])
+
+
+Step 3: Model fit
+
+# hyperparameters
+ARCHITECTURE = "mask_rcnn_R_101_FPN_3x"
+CONFIG_FILE_PATH = f"COCO-InstanceSegmentation/{ARCHITECTURE}.yaml"
+MAX_ITER = 1000
+EVAL_PERIOD = 200
+BASE_LR = 0.001
+NUM_CLASSES = 3
+
+# output dir
+OUTPUT_DIR_PATH = os.path.join(
+    DATA_SET_NAME,
+    ARCHITECTURE,
+    datetime.now().strftime('%Y-%m-%d-%H-%M-%S')
+)
+
+os.makedirs(OUTPUT_DIR_PATH, exist_ok=True)
+
+cfg = get_cfg()
+cfg.merge_from_file(model_zoo.get_config_file(CONFIG_FILE_PATH))
+cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url(CONFIG_FILE_PATH)
+cfg.DATASETS.TRAIN = (TRAIN_DATA_SET_NAME,)
+cfg.DATASETS.TEST = (TEST_DATA_SET_NAME,)
+cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 64
+cfg.TEST.EVAL_PERIOD = EVAL_PERIOD
+cfg.DATALOADER.NUM_WORKERS = 2
+cfg.SOLVER.IMS_PER_BATCH = 2
+cfg.INPUT.MASK_FORMAT='bitmask'
+cfg.SOLVER.BASE_LR = BASE_LR
+cfg.SOLVER.MAX_ITER = MAX_ITER
+cfg.MODEL.ROI_HEADS.NUM_CLASSES = NUM_CLASSES
+cfg.OUTPUT_DIR = OUTPUT_DIR_PATH
+
+trainer = DefaultTrainer(cfg)
+trainer.resume_or_load(resume=False)
+trainer.train()
+
+Step 4: Calculation of performance indicators
+
+# This code is analogous for all fitted models
+
+import time
+import numpy as np
+import cv2
+from detectron2.engine import DefaultTrainer, DefaultPredictor
+from detectron2.config import get_cfg
+from detectron2.data import build_detection_test_loader, DatasetCatalog,
+MetadataCatalog
+from detectron2.evaluation import COCOEvaluator, inference_on_dataset
+from detectron2 import model_zoo
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
+
+# Function to calculate IoU
+def compute_iou(gt_mask, pred_mask):
+    intersection = np.logical_and(gt_mask, pred_mask)
+    union = np.logical_or(gt_mask, pred_mask)
+    iou = np.sum(intersection) / np.sum(union)
+    return iou
+
+# Function to calculate Dice Coefficient
+def compute_dice(gt_mask, pred_mask):
+    intersection = np.logical_and(gt_mask, pred_mask)
+    dice = 2. * np.sum(intersection) / (np.sum(gt_mask) + np.sum(pred_mask))
+    return dice
+
+# Function to convert segmentation in binary masks
+def segmentation_to_mask(segmentation, height, width):
+    mask = np.zeros((height, width), dtype=np.uint8)
+    for polygon in segmentation:
+        polygon = np.array(polygon, dtype=np.int32).reshape((-1, 2))
+        cv2.fillPoly(mask, [polygon], 1)
+    return mask.astype(bool)
+
+# model evaluation
+evaluator = COCOEvaluator(VALID_DATA_SET_NAME, cfg, False, output_dir="./output/")
+val_loader = build_detection_test_loader(cfg, VALID_DATA_SET_NAME)
+
+start_time = time.time()
+inference_on_dataset(trainer.model, val_loader, evaluator)
+end_time = time.time()
+elapsed_time = end_time - start_time
+
+# Prediction and calculation of metrics
+predictor = DefaultPredictor(cfg)
+gt_classes = []
+pred_classes = []
+ious = []
+dice_coefficients = []
+
+for dataset_dict in DatasetCatalog.get(VALID_DATA_SET_NAME): # 
+    img = cv2.imread(dataset_dict["file_name"])
+    outputs = predictor(img)
+    instances = outputs["instances"]
+
+    # Get true classes for current image
+    gt_classes.extend([ann["category_id"] for ann in dataset_dict["annotations"]])
+
+    # Align number of predictions with number of labelled objects
+    pred_classes.extend(instances.pred_classes.cpu().numpy()
+    [:len(dataset_dict["annotations"])])
+
+    # Calculate IoU and Dice Coefficient for each mask
+    height, width = img.shape[:2]
+    for i, ann in enumerate(dataset_dict["annotations"]):
+        gt_mask = segmentation_to_mask(ann["segmentation"], height, width)
+        pred_mask = instances.pred_masks[i].cpu().numpy()
+
+        if gt_mask.shape != pred_mask.shape:
+            pred_mask = cv2.resize(pred_mask.astype(np.uint8), (gt_mask.shape[1],
+    gt_mask.shape[0]), interpolation=cv2.INTER_NEAREST).astype(bool)
+
+        iou = compute_iou(gt_mask, pred_mask)
+        dice = compute_dice(gt_mask, pred_mask)
+
+        ious.append(iou)
+        dice_coefficients.append(dice)
+
+gt_classes = np.array(gt_classes)
+pred_classes = np.array(pred_classes)
+
+# Calculate metrics using sklearn
+accuracy = accuracy_score(gt_classes, pred_classes)
+precision = precision_score(gt_classes, pred_classes, average='weighted')
+recall = recall_score(gt_classes, pred_classes, average='weighted')
+f1 = f1_score(gt_classes, pred_classes, average='weighted')
+
+# Calculate segmentation metrics
+mean_iou = np.mean(ious)
+mean_dice = np.mean(dice_coefficients)
+
+# View metrics and processing time
+print(f"Acurácia: {accuracy:.4f}")
+print(f"Precisão: {precision:.4f}")
+print(f"Revocação: {recall:.4f}")
+print(f"F1-score: {f1:.4f}")
+print(f"IoU Médio: {mean_iou:.4f}")
+print(f"Coeficiente de Dice Médio: {mean_dice:.4f}")
+print(f"Tempo de Processamento: {elapsed_time:.2f} segundos")
+
