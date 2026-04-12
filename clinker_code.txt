@@ -55,6 +55,10 @@ rf = Roboflow(api_key="") # or rf = Roboflow(api_key="sDHrdDWd5USqSBR0E7on")
 project = rf.workspace("medusas").project("alitas-tcc_h")
 dataset = project.version(11).download("coco")
 
+# from roboflow import Roboflow
+# rf = Roboflow(api_key="6wYX5NIqBgBn5E8QdBrB")
+# project = rf.workspace("lazulis-projects").project("c3s-clinker")
+# dataset = project.version(3).download("coco-segmentation")
 
 Step 2: Model 1 Dataset Treatment
 
@@ -257,11 +261,11 @@ mean_iou = np.mean(ious)
 mean_dice = np.mean(dice_coefficients)
 
 # View metrics and processing time
-print(f"Acur·cia: {accuracy:.4f}")
-print(f"Precis„o: {precision:.4f}")
-print(f"RevocaÁ„o: {recall:.4f}")
+print(f"Acur√°cia: {accuracy:.4f}")
+print(f"Precis√£o: {precision:.4f}")
+print(f"Revoca√ß√£o: {recall:.4f}")
 print(f"F1-score: {f1:.4f}")
-print(f"IoU MÈdio: {mean_iou:.4f}")
-print(f"Coeficiente de Dice MÈdio: {mean_dice:.4f}")
+print(f"IoU M√©dio: {mean_iou:.4f}")
+print(f"Coeficiente de Dice M√©dio: {mean_dice:.4f}")
 print(f"Tempo de Processamento: {elapsed_time:.2f} segundos")
 
